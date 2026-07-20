@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Linux 核心設計 · 第一週（互動版）</title>
+<!-- source: content/week1.md（互動自學頁：自控步調 + 概念動畫解說） -->
+<style>
+  :root{
+    --bg:#0f172a; --text:#e2e8f0; --title:#ffffff; --blue:#3b82f6;
+    --green:#22c55e; --green-bg:#14532d; --red:#7f1d1d; --panel:#1e293b; --line:#334155;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg); color:var(--text);
+    font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; min-height:100vh}
+  header{padding:16px 28px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px}
+  header h1{font-size:18px; margin:0; color:var(--title); font-weight:700}
+  header .sub{font-size:13px; color:#94a3b8}
+  .progress{flex:1; display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap}
+  .dot{width:10px; height:10px; border-radius:50%; background:var(--line); cursor:pointer; transition:.2s}
+  .dot.active{background:var(--blue); transform:scale(1.3)}
+  .dot.done{background:var(--green)}
+  main{flex:1; display:flex; align-items:center; justify-content:center; padding:32px}
+  .card{max-width:900px; width:100%}
+  .eyebrow{color:var(--blue); font-size:14px; letter-spacing:2px; font-weight:700; margin-bottom:10px}
+  .card h2{color:var(--title); font-size:32px; margin:0 0 18px}
+  .card p{font-size:19px; line-height:1.9; margin:14px 0}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace; background:#0b1220; color:#93c5fd; padding:2px 8px; border-radius:6px}
+  pre{position:relative; background:#0b1220; border:1px solid var(--line); border-radius:12px; padding:18px 22px; overflow:auto; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:18px; color:#e2e8f0}
+  .nodes{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0}
+  .node{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 22px; font-size:19px}
+  .node b{color:var(--title)}
+  .node.hot{background:var(--green-bg); border-color:var(--green)}
+  .flow{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:22px 0; font-family:ui-monospace,monospace}
+  .flow .step{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 16px}
+  .flow .step.hl{background:var(--green-bg); border-color:var(--green)}
+  .flow .arw{color:#64748b}
+  /* 進場動畫 */
+  .reveal{opacity:0; animation:revealIn .5s ease forwards}
+  @keyframes revealIn{from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none}}
+  @keyframes blink{50%{opacity:0}}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,0)} 50%{box-shadow:0 0 0 6px rgba(34,197,94,.25)}}
+  .pulse{animation:pulse 2s ease-in-out infinite}
+  @keyframes slam{0%{opacity:0; transform:scale(.6)} 60%{opacity:1; transform:scale(1.08)}
+    70%{transform:scale(1.08) translateX(-6px)} 80%{transform:translateX(6px)} 90%{transform:translateX(-3px)} 100%{transform:none}}
+  .slam{animation:slam .6s ease both}
+  @keyframes floaty{0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)}}
+  .float{animation:floaty 3s ease-in-out infinite}
+  @keyframes pop{0%{transform:scale(1)} 50%{transform:scale(1.04)} 100%{transform:scale(1)}}
+  .pop{animation:pop .4s ease}
+  /* 概念動畫：數線溢位 */
+  .anim{background:#0b1220; border:1px solid var(--line); border-radius:12px; padding:22px 24px; margin:20px 0}
+  .numline{position:relative; height:64px; margin:14px 0 6px; background:linear-gradient(var(--line),var(--line)) left center/100% 3px no-repeat}
+  .nl-label{position:absolute; top:34px; font-size:13px; color:#94a3b8; transform:translateX(-50%); font-family:monospace}
+  .nl-marker{position:absolute; top:6px; left:88%; width:22px; height:22px; border-radius:50%; background:var(--blue); transform:translateX(-50%); box-shadow:0 0 0 6px rgba(59,130,246,.25)}
+  .ov-belief{opacity:0; transition:.4s; color:#94a3b8; font-size:15px; min-height:22px; font-family:monospace}
+  .ov-ub{display:inline-block; margin-top:8px; background:var(--red); color:#fff; padding:8px 16px; border-radius:10px; opacity:0; transform:scale(.7); font-weight:600}
+  .ov-ub.show{animation:slam .6s ease forwards}
+  /* 概念動畫：git bisect */
+  .commits{display:flex; gap:6px; margin:14px 0; flex-wrap:wrap}
+  .commit{width:38px; height:46px; border-radius:8px; background:var(--panel); border:2px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-family:monospace; font-size:13px; color:#94a3b8; transition:.3s}
+  .commit.probe{border-color:var(--blue); box-shadow:0 0 0 4px rgba(59,130,246,.3); color:#fff}
+  .commit.good{background:var(--green-bg); border-color:var(--green); color:#dcfce7}
+  .commit.bad{background:var(--red); border-color:#ef4444; color:#fee2e2}
+  .commit.dim{opacity:.28}
+  .commit.found{background:var(--blue); border-color:#93c5fd; color:#fff; transform:scale(1.12)}
+  .bi-info{font-family:monospace; font-size:15px; color:#e2e8f0; min-height:24px; margin-top:6px}
+  .replay{background:transparent; border:1px solid var(--line); color:#94a3b8; border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; margin-top:10px}
+  .replay:hover{border-color:var(--blue); color:#e2e8f0}
+  /* quiz */
+  .quiz .opt{display:block; width:100%; text-align:left; background:var(--panel); color:var(--text);
+    border:2px solid var(--line); border-radius:14px; padding:16px 20px; margin:12px 0; font-size:18px; cursor:pointer; transition:.18s}
+  .quiz .opt:hover{border-color:var(--blue); transform:translateX(4px)}
+  .quiz .opt.correct{background:var(--green-bg); border-color:var(--green)}
+  .quiz .opt.wrong{background:var(--red); border-color:#ef4444}
+  .quiz .opt.dim{opacity:.4}
+  .quiz .opt:disabled{cursor:default}
+  .explain{margin-top:16px; padding:16px 20px; border-left:4px solid var(--green); background:#0b1220; border-radius:8px; font-size:17px; line-height:1.8; display:none}
+  .explain.show{display:block; animation:revealIn .35s ease}
+  footer{padding:16px 28px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center}
+  button.nav{background:var(--blue); color:#fff; border:0; border-radius:10px; padding:12px 24px; font-size:16px; cursor:pointer}
+  button.nav:disabled{background:var(--line); cursor:default}
+  .hint{color:#94a3b8; font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Linux 核心設計 · 第一週</h1>
+  <span class="sub">互動自學版 — 自控步調，方向鍵 ← → 或按鈕切換</span>
+  <div class="progress" id="progress"></div>
+</header>
+<main><div class="card" id="card"></div></main>
+<footer>
+  <button class="nav" id="prev">← 上一頁</button>
+  <span class="hint" id="counter"></span>
+  <button class="nav" id="next">下一頁 →</button>
+</footer>
+
+<script>
+const SECTIONS = [
+  {type:'content', eyebrow:'單元 0 · 本週地圖', title:'第一週：先建立心態與工具',
+   html:`<p class="reveal">第一週不急著 trace 原始碼——先回答三個問題：為什麼讀核心？要什麼基礎？怎麼把環境架起來動手量測。</p>
+   <div class="nodes">
+     <div class="node reveal"><b>為何讀核心</b><br>理解工程取捨</div>
+     <div class="node reveal"><b>C 與底層基礎</b><br>不依賴未定義行為</div>
+     <div class="node reveal"><b>開發環境</b><br>gcc / gdb / QEMU / git</div>
+     <div class="node reveal"><b>巨觀結構</b><br>五大子系統地圖</div>
+   </div>
+   <p class="reveal hint">目標：養成「凡事量測、凡事問為什麼」的習慣。</p>`},
+
+  {type:'content', eyebrow:'單元 1 · 為何讀核心', title:'你以為理所當然的，都是核心撐住的',
+   html:`<p class="reveal">你呼叫 <code>malloc</code>，背後是誰跟實體記憶體要頁面？你 <code>printf</code>，字元怎麼跨越 user space 到硬體？你開兩個執行緒，誰決定哪個先跑？</p>
+   <div class="flow">
+     <span class="step reveal">malloc()</span><span class="arw reveal">→ 記憶體管理</span>
+     <span class="step reveal">printf()</span><span class="arw reveal">→ 檔案 I/O</span>
+     <span class="step reveal">pthread_create()</span><span class="arw reveal">→ 行程排程</span>
+   </div>
+   <p class="reveal">讀核心的收穫：<b>除錯功力</b>、<b>設計品味</b>、<b>可貢獻性</b>。重點不是記住怎麼寫，是學會它怎麼想。</p>`},
+
+  {type:'quiz', eyebrow:'自我評量 1', title:'研讀核心原始碼，最核心的學習目的？',
+   options:['背下常用核心函式的名稱與參數',
+     '理解系統在各種限制下所做的「工程取捨」，並能據此除錯與設計',
+     '記住每個檔案在原始碼樹的路徑'],
+   correct:1,
+   explain:'核心的價值在於「為什麼這樣設計」——延遲與吞吐、記憶體與速度、公平與效率之間的取捨。a、c 是查得到的死知識；真正稀缺的是取捨的判斷力。'},
+
+  {type:'content', eyebrow:'單元 2 · 未定義行為', title:'C 最危險的不是語法，是 UB', anim:'overflow',
+   html:`<pre class="reveal">int a = INT_MAX;
+a = a + 1;      // 有號整數溢位</pre>
+   <div class="anim reveal">
+     <div class="numline">
+       <div class="nl-marker" id="ov-marker"></div>
+       <div class="nl-label" style="left:3%">INT_MIN</div>
+       <div class="nl-label" style="left:50%">0</div>
+       <div class="nl-label" style="left:97%">INT_MAX</div>
+     </div>
+     <div class="ov-belief" id="ov-belief"></div>
+     <div><span class="ov-ub" id="ov-ub">C 標準：未定義行為 → 編譯器假設它不會發生，把你的溢位檢查整段移除</span></div>
+     <div><button class="replay" id="ov-replay">↻ 重播</button></div>
+   </div>
+   <p class="reveal">紀律：需要回繞語意時改用 <code>unsigned</code>（無號溢位才有明確定義）。</p>`},
+
+  {type:'quiz', eyebrow:'自我評量 2', title:'關於 INT_MAX + 1，何者正確？',
+   options:['標準保證回繞到 INT_MIN，可安全用來做溢位檢查',
+     '是未定義行為，編譯器可能假設它不發生並移除相關檢查',
+     '一定會讓程式當機'],
+   correct:1,
+   explain:'有號整數溢位為未定義行為。若需要有定義的回繞語意，應改用無號型別，其溢位以 2ⁿ 取模是標準明訂的。UB 不保證當機，反而常「看似正常」直到某次最佳化或平台改變才爆。'},
+
+  {type:'content', eyebrow:'單元 3 · 工具鏈', title:'git bisect：二分搜出問題 commit', anim:'bisect',
+   html:`<div class="flow">
+     <span class="step reveal">原始碼</span><span class="arw reveal">→</span>
+     <span class="step reveal">gcc</span><span class="arw reveal">→</span>
+     <span class="step reveal">QEMU</span><span class="arw reveal">→</span>
+     <span class="step reveal">gdb</span><span class="arw reveal">→</span>
+     <span class="step hl reveal pulse">perf</span>
+   </div>
+   <div class="anim reveal">
+     <div style="color:#94a3b8;font-size:14px;margin-bottom:4px">16 個 commit，其中某次之後開始壞掉 — 看二分搜尋怎麼收斂：</div>
+     <div class="commits" id="bi-commits"></div>
+     <div class="bi-info" id="bi-info"></div>
+     <button class="replay" id="bi-replay">↻ 重播</button>
+   </div>
+   <p class="reveal">核心的世界裡直覺常是錯的——先量測，再下結論。工具用對，定位問題是 O(log n) 而非 O(n)。</p>`},
+
+  {type:'quiz', eyebrow:'自我評量 3', title:'不確定哪次 commit 弄壞功能，最有效率的定位工具？',
+   options:['git bisect：以二分搜尋在提交歷史中快速定位出問題的 commit',
+     '從第一個 commit 逐一手動檢查',
+     '直接重寫整個模組'],
+   correct:0,
+   explain:'git bisect 以 O(log n) 次測試定位問題 commit，n 次提交只需約 log₂(n) 次驗證。逐一手動是 O(n) 蠻力；重寫沒先找出根因，往往連原本哪裡對都不知道。'},
+
+  {type:'content', eyebrow:'單元 4 · 巨觀結構', title:'核心的五大子系統',
+   html:`<div class="nodes">
+     <div class="node hot reveal float"><b>行程與排程</b> · Week 2 →</div>
+     <div class="node reveal"><b>記憶體管理</b></div>
+     <div class="node reveal"><b>檔案系統 / VFS</b></div>
+     <div class="node reveal"><b>網路協定堆疊</b></div>
+     <div class="node reveal"><b>裝置驅動程式</b></div>
+   </div>
+   <p class="reveal">它們靠<b>抽象層與明確介面</b>互動。例如 VFS 讓「開檔」對 ext4、Btrfs、網路檔案系統長得一樣——「用介面隔離變化」是整門課反覆出現的範本。</p>`},
+
+  {type:'quiz', eyebrow:'自我評量 4', title:'VFS（虛擬檔案系統）的角色，最貼切的是？',
+   options:['一種特定的磁碟檔案系統格式',
+     '一層抽象介面，讓上層以統一方式操作 ext4、Btrfs、網路檔案系統等不同實作',
+     '負責 CPU 排程的模組'],
+   correct:1,
+   explain:'VFS 以統一的 open/read/write 等介面隔離底層差異，是「以介面隔離變化」的經典範例。a 錯把抽象層當成具體格式；c 是排程子系統的職責。'},
+
+  {type:'content', eyebrow:'本週任務', title:'動手做完這四項',
+   html:`<div class="nodes">
+     <div class="node reveal">1 · 架環境並在 QEMU 啟動最小核心</div>
+     <div class="node reveal">2 · UB 實驗：-O0 vs -O2 觀察差異</div>
+     <div class="node reveal">3 · perf stat 量測 cache-misses</div>
+     <div class="node reveal">4 · 改寫一題自我評量並附解答</div>
+   </div>
+   <p class="reveal pulse" style="display:inline-block;font-size:22px;color:var(--blue);font-weight:700;padding:10px 18px;border-radius:10px">Week 2：行程與排程 →</p>`},
+];
+
+let idx = 0;
+const done = new Set();
+const card = document.getElementById('card');
+const progress = document.getElementById('progress');
+const counter = document.getElementById('counter');
+
+let animHandles = [];
+function clearAnims(){ animHandles.forEach(h=>{clearTimeout(h); clearInterval(h)}); animHandles = []; }
+function later(fn, ms){ const h = setTimeout(fn, ms); animHandles.push(h); return h; }
+
+// 概念動畫 1：有號整數溢位
+function animOverflow(){
+  const marker = document.getElementById('ov-marker');
+  const belief = document.getElementById('ov-belief');
+  const ub = document.getElementById('ov-ub');
+  if(!marker) return;
+  function run(){
+    ub.classList.remove('show'); belief.style.opacity = 0; belief.textContent = '';
+    marker.style.transition = 'left .8s ease'; marker.style.left = '88%';
+    later(()=>{ marker.style.left = '104%'; belief.textContent = 'a = a + 1 …衝出 INT_MAX'; belief.style.opacity = 1; }, 900);
+    later(()=>{ marker.style.transition = 'none'; marker.style.left = '-4%'; }, 1900);
+    later(()=>{ marker.style.transition = 'left .8s ease'; marker.style.left = '3%'; belief.textContent = '你以為 → 回繞到 INT_MIN'; }, 2000);
+    later(()=>{ ub.classList.add('show'); }, 3200);
+  }
+  run();
+  const iv = setInterval(run, 6500); animHandles.push(iv);
+  document.getElementById('ov-replay').onclick = ()=>{ clearAnims(); run(); const iv2 = setInterval(run, 6500); animHandles.push(iv2); };
+}
+
+// 概念動畫 2：git bisect 二分搜尋
+function animBisect(){
+  const N = 16, firstBad = 11;
+  const wrap = document.getElementById('bi-commits');
+  const info = document.getElementById('bi-info');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  const boxes = [];
+  for(let i=0;i<N;i++){ const d = document.createElement('div'); d.className='commit'; d.textContent = i; wrap.appendChild(d); boxes.push(d); }
+  function run(){
+    boxes.forEach(b=>b.className='commit');
+    let lo = 0, hi = N-1, tests = 0;
+    info.textContent = '範圍 [0, '+(N-1)+']　（找第一個壞掉的 commit）';
+    function step(){
+      if(lo >= hi){ boxes[lo].classList.add('found'); info.textContent = '找到！第一個壞 commit = #'+lo+'　共 '+tests+' 次測試（16 個只需 log₂16 = 4）'; return; }
+      const mid = Math.floor((lo+hi)/2); tests++;
+      boxes[mid].classList.add('probe');
+      const bad = mid >= firstBad;
+      later(()=>{
+        boxes[mid].classList.remove('probe');
+        if(bad){ boxes[mid].classList.add('bad'); for(let i=mid+1;i<=hi;i++) boxes[i].classList.add('dim'); hi = mid; }
+        else { boxes[mid].classList.add('good'); for(let i=lo;i<=mid;i++) boxes[i].classList.add('dim'); lo = mid+1; }
+        info.textContent = '測試 #'+mid+' → '+(bad?'壞':'好')+'，範圍縮到 ['+lo+', '+hi+']';
+        later(step, 950);
+      }, 750);
+    }
+    step();
+  }
+  run();
+  const iv = setInterval(run, 9000); animHandles.push(iv);
+  document.getElementById('bi-replay').onclick = ()=>{ clearAnims(); run(); const iv2 = setInterval(run, 9000); animHandles.push(iv2); };
+}
+
+const ANIMS = { overflow: animOverflow, bisect: animBisect };
+
+function renderProgress(){
+  progress.innerHTML = '';
+  SECTIONS.forEach((_,i)=>{
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===idx?' active':'') + (done.has(i)?' done':'');
+    d.onclick = ()=>{idx=i;render()};
+    progress.appendChild(d);
+  });
+}
+
+function stagger(){
+  card.querySelectorAll('.reveal').forEach((el,i)=>{ el.style.animationDelay = (0.08 + i*0.12) + 's'; });
+}
+
+function render(){
+  clearAnims();
+  const s = SECTIONS[idx];
+  if(s.type==='content'){
+    card.innerHTML = `<div class="eyebrow reveal">${s.eyebrow}</div><h2 class="reveal">${s.title}</h2>${s.html}`;
+    done.add(idx);
+  } else {
+    const opts = s.options.map((o,i)=>`<button class="opt reveal" data-i="${i}">${'abc'[i]}) ${o}</button>`).join('');
+    card.innerHTML = `<div class="quiz"><div class="eyebrow reveal">${s.eyebrow}</div><h2 class="reveal">${s.title}</h2>${opts}<div class="explain" id="explain">${s.explain}</div></div>`;
+    card.querySelectorAll('.opt').forEach(btn=>{ btn.onclick = ()=>answer(parseInt(btn.dataset.i), s.correct); });
+  }
+  stagger();
+  if(s.anim && ANIMS[s.anim]) later(()=>ANIMS[s.anim](), 400);
+  document.getElementById('prev').disabled = idx===0;
+  document.getElementById('next').disabled = idx===SECTIONS.length-1;
+  counter.textContent = `${idx+1} / ${SECTIONS.length}`;
+  renderProgress();
+}
+
+function answer(pick, correct){
+  const btns = card.querySelectorAll('.opt');
+  btns.forEach((b,i)=>{
+    b.disabled = true; b.style.animationDelay = '0s';
+    if(i===correct){ b.classList.add('correct','pop','pulse'); }
+    else if(i===pick){ b.classList.add('wrong'); }
+    else b.classList.add('dim');
+  });
+  document.getElementById('explain').classList.add('show');
+  done.add(idx);
+  renderProgress();
+}
+
+document.getElementById('prev').onclick = ()=>{if(idx>0){idx--;render()}};
+document.getElementById('next').onclick = ()=>{if(idx<SECTIONS.length-1){idx++;render()}};
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight' && idx<SECTIONS.length-1){idx++;render()}
+  if(e.key==='ArrowLeft' && idx>0){idx--;render()}
+});
+render();
+</script>
+</body>
+</html>
