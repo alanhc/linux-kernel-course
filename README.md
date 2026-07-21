@@ -2,6 +2,9 @@
 
 從零到能在本機預覽、render，並讓 Claude Code 依教材自動產生場景。
 
+> **🌐 線上版：https://alanhc.github.io/linux-kernel-course/**
+> 一份教材（`content/week1.md`）產出兩種形態：**互動自學頁**（自控步調）與 **Motion Canvas 場景播放器**（線性動畫）。推到 `main` 會自動部署到 GitHub Pages（見文末〈部署〉）。
+
 ## 1. 建立 Motion Canvas 專案
 ```bash
 npm init @motion-canvas@latest
@@ -65,3 +68,31 @@ claude
 4. 學員也能對 `content/` 或 `src/scenes/` 提 PR 貢獻
 
 > 技術正確性由你把關：Claude 依教材原文產出，不臆測；有疑慮處它會在 PR 標「待人工確認」。
+
+## 部署（GitHub Pages）
+
+線上站台由 GitHub Actions 自動建置：**push 到 `main` 就會重建並部署**，不需手動操作。
+
+### 網站結構
+| 路徑 | 內容 | 來源 |
+|------|------|------|
+| `/` | 導覽頁（連到下面兩者） | `scripts/build-site.mjs` 產生 |
+| `/week1.html` | 互動自學頁（自控步調） | `web/week1.html` |
+| `/player/` | Motion Canvas 場景播放器 | `dist/` 場景 bundle + `embed/` 打包的 player |
+
+### 本機預覽整個站台
+```bash
+npm run build:site      # 建置場景 + player，組裝到 site/
+npx serve site          # 或任意靜態伺服器，開 http://localhost:3000
+```
+`build:site`（`scripts/build-site.mjs`）會依序：
+1. `npm run build` — 產生場景 project bundle（`dist/src/project-*.js`）。
+2. build `embed/` — 把 `@motion-canvas/player` 打包成自包含檔（player 套件本身有 bare import，靜態頁面無法直接載入，故需這步）。
+3. 組裝 `site/`：導覽頁、自學頁、播放器頁與其資產。
+
+### 運作方式
+- workflow：`.github/workflows/deploy.yml`（`actions/upload-pages-artifact` + `actions/deploy-pages`）。
+- Pages source 設為 **GitHub Actions**（非 `gh-pages` 分支）。
+- `dist/`、`embed/dist/`、`site/` 皆為建置產物，已列入 `.gitignore`，不進版控。
+
+> 教材或場景更新後，照上面〈之後的循環〉開 PR、合併到 `main`，Pages 即自動更新。
